@@ -7,8 +7,6 @@
 ![Codecov](https://img.shields.io/codecov/c/github/burtonrj/consensusclustering)
 ![GitHub Workflow Status (with event)](https://img.shields.io/github/actions/workflow/status/burtonrj/consensusclustering/build.yaml)
 
-**------! UNDER CONSTRUCTION !------**
-
 ## Description
 
 `consensusclustering` is a python implementation of the Consensus Clustering
