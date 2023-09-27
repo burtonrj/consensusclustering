@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from itertools import combinations
 from typing import Type
+from warnings import warn
 
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from joblib import Parallel, delayed
+from kneed import KneeLocator
 from tqdm.auto import tqdm
 
 
@@ -225,7 +228,7 @@ class ConsensusClustering:
         clustering_obj
             Clustering object to use; must have fit_predict and set_params methods.
         min_clusters: int
-            Minimum number of clusters to consider.
+            Minimum number of clusters to consider. Must be greater than or equal to 2.
         max_clusters: int
             Maximum number of clusters to consider.
         n_resamples: int
@@ -242,6 +245,15 @@ class ConsensusClustering:
         self.resample_frac = resample_frac
         self.consensus_matrices_: list[np.ndarray] = []
         self.k_param = k_param
+
+        if self.min_clusters < 2:
+            raise ValueError("min_clusters must be >= 2")
+        if self.max_clusters < self.min_clusters:
+            raise ValueError("max_clusters must be >= min_clusters")
+
+    @property
+    def cluster_range_(self) -> list[int]:
+        return list(range(self.min_clusters, self.max_clusters + 1))
 
     def consensus_k(self, k: int) -> np.ndarray:
         """
@@ -261,7 +273,67 @@ class ConsensusClustering:
             raise ValueError("Consensus matrices not computed yet.")
         return self.consensus_matrices_[k - self.min_clusters]
 
-    def fit(self, x: np.ndarray, progress_bar: bool = False) -> None:
+    def _fit_multiprocess(
+        self, x: np.ndarray, progress_bar: bool = False, n_jobs: int = -1
+    ):
+        """
+        Compute consensus matrices for all values of k in parallel
+
+        Parameters
+        ----------
+        x: np.ndarray
+            Matrix to cluster
+        progress_bar: bool (default: False)
+            Whether to display a progress bar
+        n_jobs: int (default: -1)
+            Number of jobs to run in parallel
+
+        Returns
+        -------
+        None
+            Consensus matrices are stored in self.consensus_matrices_
+        """
+        self.consensus_matrices_ = []
+        with Parallel(n_jobs) as parallel:
+            self.consensus_matrices_ = list(
+                parallel(
+                    delayed(self._fit_single_k)(x, k)
+                    for k in tqdm(
+                        self.cluster_range_,
+                        disable=not progress_bar,
+                        desc="Computing consensus matrices",
+                        total=self.max_clusters - self.min_clusters + 1,
+                    )
+                )
+            )
+
+    def _fit_single_k(self, x: np.ndarray, k: int) -> np.ndarray:
+        """
+        Compute the consensus matrix for a single value of k.
+
+        Parameters
+        ----------
+        x: np.ndarray
+            Matrix to cluster
+        k: int
+            Number of clusters
+
+        Returns
+        -------
+        np.ndarray
+            Consensus matrix for k
+        """
+        connectivity_matrices = []
+        identity_matrices = []
+        for _ in range(self.n_resamples):
+            clustering_obj, resampled_indices, labels = cluster(
+                x, self.resample_frac, k, self.clustering_obj, self.k_param
+            )
+            connectivity_matrices.append(compute_connectivity_matrix(labels))
+            identity_matrices.append(compute_identity_matrix(x, resampled_indices))
+        return compute_consensus_matrix(connectivity_matrices, identity_matrices)
+
+    def fit(self, x: np.ndarray, progress_bar: bool = False, n_jobs: int = 0) -> None:
         """
         Compute consensus matrices for all values of k.
 
@@ -271,6 +343,8 @@ class ConsensusClustering:
             Matrix to cluster
         progress_bar: bool (default: False)
             Whether to display a progress bar
+        n_jobs: int (default: 0)
+            Number of jobs to run in parallel. If 0, run in serial.
 
         Returns
         -------
@@ -278,23 +352,16 @@ class ConsensusClustering:
             Consensus matrices are stored in self.consensus_matrices_
         """
         self.consensus_matrices_ = []
-        for k in tqdm(
-            range(self.min_clusters, self.max_clusters + 1),
-            disable=not progress_bar,
-            desc="Computing consensus matrices",
-            total=self.max_clusters - self.min_clusters + 1,
-        ):
-            connectivity_matrices = []
-            identity_matrices = []
-            for _ in range(self.n_resamples):
-                clustering_obj, resampled_indices, labels = cluster(
-                    x, self.resample_frac, k, self.clustering_obj, self.k_param
-                )
-                connectivity_matrices.append(compute_connectivity_matrix(labels))
-                identity_matrices.append(compute_identity_matrix(x, resampled_indices))
-            self.consensus_matrices_.append(
-                compute_consensus_matrix(connectivity_matrices, identity_matrices)
-            )
+        if n_jobs == 0:
+            for k in tqdm(
+                self.cluster_range_,
+                disable=not progress_bar,
+                desc="Computing consensus matrices",
+                total=self.max_clusters - self.min_clusters + 1,
+            ):
+                self.consensus_matrices_.append(self._fit_single_k(x, k))
+        else:
+            self._fit_multiprocess(x, progress_bar, n_jobs)
 
     def hist(self, k: int) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -354,21 +421,23 @@ class ConsensusClustering:
 
     def change_in_area_under_cdf(self) -> np.ndarray:
         """
-        Compute the change in the area under the cumulative distribution function (CDF)
-        of the consensus matrix for each number of clusters.
+        Compute the proportional change in the area under the cumulative distribution
+        function (CDF) of the consensus matrix for each number of clusters.
 
         Returns
         -------
         np.ndarray
-            Change in area under the CDF as a function of the number of clusters
+            Proportional change in area under the CDF as a function of the number of
+            clusters
         """
-        auc = [
-            self.area_under_cdf(k)
-            for k in range(self.min_clusters, self.max_clusters + 1)
+        auc = [self.area_under_cdf(k) for k in self.cluster_range_]
+        delta_k = [
+            (b - a) / b if k > 2 else a
+            for a, b, k in zip(auc[:-1], auc[1:], self.cluster_range_)
         ]
-        return np.diff(auc)
+        return np.array(delta_k)
 
-    def best_k(self) -> int:
+    def best_k(self, method: str = "knee") -> int:
         """
         Compute the optimal number of clusters by maximizing the change in the area
         under the cumulative distribution function (CDF) of the consensus matrix.
@@ -378,11 +447,68 @@ class ConsensusClustering:
         int
             Optimal number of clusters
         """
-        change = self.change_in_area_under_cdf()
-        largest_change_in_auc = np.argmax(change) + 1
-        return list(range(self.min_clusters, self.max_clusters + 1))[
-            largest_change_in_auc
-        ]
+        if method == "change_in_auc":
+            change = self.change_in_area_under_cdf()
+            largest_change_in_auc = np.argmax(change)
+            return list(range(self.min_clusters, self.max_clusters))[
+                largest_change_in_auc
+            ]
+        elif method == "knee":
+            kneedle = KneeLocator(
+                self.cluster_range_,
+                [self.area_under_cdf(k) for k in self.cluster_range_],
+                curve="concave",
+                direction="increasing",
+            )
+            if kneedle.knee is None:
+                warn(
+                    "Kneedle algorithm failed to find a knee. "
+                    "Returning maximum number of clusters, however, it is likely that "
+                    "the clustering is unstable. Plot the CDFs and consensus matrices "
+                    "to check."
+                )
+                return self.max_clusters
+            return kneedle.knee
+        else:
+            raise ValueError("method must be one of 'change_in_auc' or 'knee'")
+
+    def plot_auc_cdf(self, include_knee: bool = True, ax: plt.Axes | None = None):
+        """
+        Plot the area under the cumulative distribution function (CDF)
+        of the consensus matrix as a function of the number of clusters.
+
+        Parameters
+        ----------
+        include_knee: bool (default: True)
+            Whether to include a vertical line at the knee
+        ax: plt.Axes (default: None)
+            Axis on which to plot
+
+        Returns
+        -------
+        None
+        """
+        ax = plt.subplots(figsize=(5, 5))[1] if ax is None else ax
+        auc = [self.area_under_cdf(k) for k in self.cluster_range_]
+        ax.plot(
+            self.cluster_range_,
+            auc,
+            "--",
+            marker="o",
+            markerfacecolor="white",
+            markeredgecolor="black",
+        )
+        if include_knee:
+            knee = self.best_k(method="knee")
+            ax.axvline(
+                knee,
+                color="k",
+                linestyle="--",
+                label="Knee",
+            )
+        ax.set_xlabel("K")
+        ax.set_ylabel("Area under CDF")
+        return ax
 
     def plot_clustermap(self, k: int, **kwargs):
         """
@@ -439,9 +565,9 @@ class ConsensusClustering:
         matplotlib.pyplot.Axes
         """
         ax = ax if ax is not None else plt.subplots(figsize=(5, 5))[1]
-        for k in range(self.min_clusters, self.max_clusters + 1):
+        for k in self.cluster_range_:
             ecdf, hist, bins = self.cdf(k)
-            ax.plot(bins[:-1], ecdf, label=f"{k} clusters")
+            ax.step(bins[:-1], ecdf, label=f"{k} clusters")
         ax.set_xlabel("Consensus index value")
         ax.set_ylabel("CDF")
         ax.set_xlim(0, 1)
@@ -463,10 +589,9 @@ class ConsensusClustering:
         matplotlib.pyplot.Axes
         """
         ax = ax if ax is not None else plt.subplots(figsize=(5, 5))[1]
-        k = [k for k in range(self.min_clusters + 1, self.max_clusters + 1)]
         change = self.change_in_area_under_cdf()
         ax.plot(
-            k,
+            self.cluster_range_[:-1],
             change,
             "--",
             marker="o",

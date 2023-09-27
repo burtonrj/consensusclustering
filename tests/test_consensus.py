@@ -14,9 +14,9 @@ from consensusclustering.consensus import (
 np.random.seed(42)
 
 
-UNIFORM = np.random.uniform(low=0.0, high=1.0, size=(1000, 600))
+UNIFORM = np.random.uniform(low=0.0, high=1.0, size=(60, 600))
 GAUSSIAN = make_classification(
-    n_samples=1000,
+    n_samples=60,
     n_features=600,
     n_informative=600,
     n_redundant=0,
@@ -82,30 +82,32 @@ def test_computer_consensus_matrix():
     assert np.array_equal(consensus_matrix, np.array([[0.5, 1.0], [1.0, 0.0]]))
 
 
-def test_consensus_cluster_uniform():
+@pytest.mark.parametrize("n_jobs", [0, -1])
+def test_consensus_cluster_uniform(n_jobs):
     clustering = ConsensusClustering(
-        clustering_obj=AgglomerativeClustering(affinity="euclidean", linkage="ward"),
+        clustering_obj=AgglomerativeClustering(metric="euclidean", linkage="average"),
         min_clusters=2,
         max_clusters=6,
-        n_resamples=10,
+        n_resamples=100,
         resample_frac=0.8,
     )
-    clustering.fit(UNIFORM)
+    clustering.fit(UNIFORM, n_jobs=n_jobs)
     assert len(clustering.consensus_matrices_) == 5
     hist, bins = clustering.hist(3)
     assert np.mean(hist) > 0.7
-    assert clustering.best_k() == 3
+    assert clustering.best_k() == 2
 
 
-def test_consensus_cluster_gaussian():
+@pytest.mark.parametrize("n_jobs", [-1, 0])
+def test_consensus_cluster_gaussian(n_jobs):
     clustering = ConsensusClustering(
-        clustering_obj=AgglomerativeClustering(affinity="euclidean", linkage="ward"),
+        clustering_obj=AgglomerativeClustering(affinity="euclidean", linkage="average"),
         min_clusters=2,
         max_clusters=6,
-        n_resamples=10,
-        resample_frac=0.8,
+        n_resamples=100,
+        resample_frac=0.5,
     )
-    clustering.fit(GAUSSIAN)
+    clustering.fit(GAUSSIAN, n_jobs=n_jobs)
     assert len(clustering.consensus_matrices_) == 5
     hist, bins = clustering.hist(3)
     assert hist[0] > 0.0
