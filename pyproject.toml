@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "consensusclustering"
-version = "0.1.1"
+version = "0.2.0"
 description = "Python implementation of Consensus Clustering by Monti et al. (2003)"
 authors = ["Ross Burton <burtonrossj@gmail.com>"]
 license = "MIT"
