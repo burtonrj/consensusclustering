@@ -51,7 +51,7 @@ def test_connectivity_matrix():
 
 def test_compute_identity_matrix():
     identity_matrix = compute_identity_matrix(UNIFORM, np.array([0, 1, 2, 3, 4]))
-    assert identity_matrix.shape == (1000, 1000)
+    assert identity_matrix.shape == (60, 60)
     assert identity_matrix.sum() == 25
     for pairs in [
         (0, 1),
