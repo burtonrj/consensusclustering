@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "consensusclustering"
-version = "0.2.0"
+version = "0.2.1"
 description = "Python implementation of Consensus Clustering by Monti et al. (2003)"
 authors = ["Ross Burton <burtonrossj@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.13"
+python = ">=3.9,<3.13"
 numpy = "^1.20.0"
 pandas = "<2.0.0,>=1.5.3,"
 matplotlib = "^3.8.0"
