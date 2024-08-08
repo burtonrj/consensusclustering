@@ -101,7 +101,7 @@ def test_consensus_cluster_uniform(n_jobs):
 @pytest.mark.parametrize("n_jobs", [-1, 0])
 def test_consensus_cluster_gaussian(n_jobs):
     clustering = ConsensusClustering(
-        clustering_obj=AgglomerativeClustering(affinity="euclidean", linkage="average"),
+        clustering_obj=AgglomerativeClustering(metric="euclidean", linkage="average"),
         min_clusters=2,
         max_clusters=6,
         n_resamples=100,
