@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from itertools import combinations
-from typing import Type
+from typing import Type, cast
 from warnings import warn
 
 import matplotlib.pyplot as plt
@@ -12,8 +13,15 @@ from kneed import KneeLocator
 from matplotlib.axes import Axes
 from tqdm.auto import tqdm
 
+SeedLike = int | np.integer | Sequence[int] | np.random.SeedSequence
+RNGLike = np.random.Generator | np.random.BitGenerator
 
-def resample(x: np.ndarray, frac: float) -> tuple[np.ndarray, np.ndarray]:
+
+def resample(
+    x: np.ndarray,
+    frac: float,
+    rng: RNGLike | SeedLike | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Resample a matrix x by a fraction frac
 
@@ -23,13 +31,19 @@ def resample(x: np.ndarray, frac: float) -> tuple[np.ndarray, np.ndarray]:
         Matrix to resample
     frac: float
         Fraction of rows to resample
+    rng: `numpy.random.Generator`, optional
+        Pseudorandom number generator state. When `rng` is None, a new
+        `numpy.random.Generator` is created using entropy from the
+        operating system. Types other than `numpy.random.Generator` are
+        passed to `numpy.random.default_rng` to instantiate a ``Generator``.
 
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
         Indices of resampled rows and resampled matrix
     """
-    resampled_indices = np.random.choice(
+    rng = np.random.default_rng(rng)
+    resampled_indices = rng.choice(
         range(x.shape[0]), size=int(x.shape[0] * frac), replace=False
     )
     return resampled_indices, x[resampled_indices, :]
@@ -153,6 +167,7 @@ def cluster(
     k: int,
     clustering_obj,
     k_param: str = "n_clusters",
+    rng: RNGLike | SeedLike | None = None,
 ) -> tuple[Type, np.ndarray, np.ndarray]:
     """
     Sample a matrix x and cluster the resampled matrix, returning the clustering
@@ -171,6 +186,11 @@ def cluster(
         Clustering object to use; must have fit_predict and set_params methods
     k_param: str
         Name of the parameter that sets the number of clusters
+    rng: `numpy.random.Generator`, optional
+        Pseudorandom number generator state. When `rng` is None, a new
+        `numpy.random.Generator` is created using entropy from the
+        operating system. Types other than `numpy.random.Generator` are
+        passed to `numpy.random.default_rng` to instantiate a ``Generator``.
 
     Returns
     -------
@@ -180,7 +200,7 @@ def cluster(
     if not valid_clustering_obj(clustering_obj, k_param):
         raise ValueError("clustering_obj must have fit_predict and set_params methods")
     clustering_obj.set_params(**{k_param: k})
-    resampled_indices, resampled_x = resample(x, resample_frac)
+    resampled_indices, resampled_x = resample(x, resample_frac, rng)
     resampled_labels = clustering_obj.fit_predict(resampled_x)
 
     if -1 in resampled_labels:
@@ -220,6 +240,7 @@ class ConsensusClustering:
         n_resamples: int,
         resample_frac: float = 0.5,
         k_param: str = "n_clusters",
+        rng: RNGLike | SeedLike | None = None,
     ):
         """
         Initialize a ConsensusClustering object.
@@ -238,6 +259,11 @@ class ConsensusClustering:
             Fraction of rows to resample.
         k_param: str
             Name of the parameter that sets the number of clusters.
+        rng: `numpy.random.Generator`, optional
+            Pseudorandom number generator state. When `rng` is None, a new
+            `numpy.random.Generator` is created using entropy from the
+            operating system. Types other than `numpy.random.Generator` are
+            passed to `numpy.random.default_rng` to instantiate a ``Generator``.
         """
         self.clustering_obj = clustering_obj
         self.min_clusters = min_clusters
@@ -246,6 +272,7 @@ class ConsensusClustering:
         self.resample_frac = resample_frac
         self.consensus_matrices_: list[np.ndarray] = []
         self.k_param = k_param
+        self.rng = np.random.default_rng(rng)
 
         if self.min_clusters < 2:
             raise ValueError("min_clusters must be >= 2")
@@ -296,18 +323,20 @@ class ConsensusClustering:
         """
         self.consensus_matrices_ = []
         with Parallel(n_jobs) as parallel:
-            results = parallel(
-                delayed(self._fit_single_k)(x, k)
-                for k in tqdm(
-                    self.cluster_range_,
-                    disable=not progress_bar,
-                    desc="Computing consensus matrices",
-                    total=self.max_clusters - self.min_clusters + 1,
-                )
+            self.consensus_matrices_ = cast(
+                list[np.ndarray],
+                list(
+                    parallel(
+                        delayed(self._fit_single_k)(x, k)
+                        for k in tqdm(
+                            self.cluster_range_,
+                            disable=not progress_bar,
+                            desc="Computing consensus matrices",
+                            total=self.max_clusters - self.min_clusters + 1,
+                        )
+                    )
+                ),
             )
-            self.consensus_matrices_ = [
-                result for result in results if result is not None
-            ]
 
     def _fit_single_k(self, x: np.ndarray, k: int) -> np.ndarray:
         """
@@ -327,9 +356,13 @@ class ConsensusClustering:
         """
         connectivity_matrices = []
         identity_matrices = []
-        for _ in range(self.n_resamples):
+
+        for i in range(self.n_resamples):
+            child_seed = self.rng.integers(0, 2**31)
+            child_rng = np.random.default_rng(child_seed)
+
             clustering_obj, resampled_indices, labels = cluster(
-                x, self.resample_frac, k, self.clustering_obj, self.k_param
+                x, self.resample_frac, k, self.clustering_obj, self.k_param, child_rng
             )
             connectivity_matrices.append(compute_connectivity_matrix(labels))
             identity_matrices.append(compute_identity_matrix(x, resampled_indices))

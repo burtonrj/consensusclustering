@@ -96,32 +96,34 @@ def test_computer_consensus_matrix():
 
 @pytest.mark.parametrize("n_jobs", [0, -1])
 def test_consensus_cluster_uniform(n_jobs, uniform_data):
-    # Set a consistent seed for the clustering process
-    np.random.seed(42)
-    clustering = ConsensusClustering(
-        clustering_obj=AgglomerativeClustering(metric="euclidean", linkage="average"),
-        min_clusters=2,
-        max_clusters=6,
-        n_resamples=100,
-        resample_frac=0.8,
-    )
-    clustering.fit(uniform_data, n_jobs=n_jobs)
-    assert len(clustering.consensus_matrices_) == 5
-    hist, bins = clustering.hist(3)
-    assert np.mean(hist) > 0.7
-    assert clustering.best_k() == 2
+    run_count = 1 if n_jobs == 0 else 5
+    for _ in range(run_count):
+        clustering = ConsensusClustering(
+            clustering_obj=AgglomerativeClustering(
+                metric="euclidean", linkage="average"
+            ),
+            min_clusters=2,
+            max_clusters=6,
+            n_resamples=100,
+            resample_frac=0.8,
+            rng=42,
+        )
+        clustering.fit(uniform_data, n_jobs=n_jobs)
+        assert len(clustering.consensus_matrices_) == 5
+        hist, bins = clustering.hist(3)
+        assert np.mean(hist) > 0.7
+        assert clustering.best_k() == 2
 
 
 @pytest.mark.parametrize("n_jobs", [-1, 0])
 def test_consensus_cluster_gaussian(n_jobs, gaussian_data):
-    # Set a consistent seed for the clustering process
-    np.random.seed(42)
     clustering = ConsensusClustering(
         clustering_obj=AgglomerativeClustering(metric="euclidean", linkage="average"),
         min_clusters=2,
         max_clusters=6,
         n_resamples=100,
         resample_frac=0.5,
+        rng=42,
     )
     clustering.fit(gaussian_data, n_jobs=n_jobs)
     assert len(clustering.consensus_matrices_) == 5
