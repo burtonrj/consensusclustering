@@ -29,4 +29,4 @@ See the 'examples' directory for a detailed overview of the package's functional
 
 ## License
 
-Cytotransform is licensed under the MIT license, is free to use, and comes with no warranty whatsoever.
+`consensusclustering` is licensed under the MIT license, is free to use, and comes with no warranty whatsoever.
