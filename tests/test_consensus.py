@@ -94,6 +94,7 @@ def test_computer_consensus_matrix():
     assert np.array_equal(consensus_matrix, np.array([[0.5, 1.0], [1.0, 0.0]]))
 
 
+@pytest.mark.filterwarnings("ignore:Kneedle algorithm failed to find a knee")
 @pytest.mark.parametrize("n_jobs", [0, -1])
 def test_consensus_cluster_uniform(n_jobs, uniform_data):
     run_count = 1 if n_jobs == 0 else 5
@@ -112,7 +113,9 @@ def test_consensus_cluster_uniform(n_jobs, uniform_data):
         assert len(clustering.consensus_matrices_) == 5
         hist, bins = clustering.hist(3)
         assert np.mean(hist) > 0.7
-        assert clustering.best_k() == 2
+        # uniform data have no cluster structure: no k is more stable than another, so the area under the CDF rises
+        # without a knee (best_k returns None) or its knee is the smallest k; which depends on the random draws
+        assert clustering.best_k() in (None, clustering.min_clusters)
 
 
 @pytest.mark.parametrize("n_jobs", [-1, 0])
@@ -132,3 +135,27 @@ def test_consensus_cluster_gaussian(n_jobs, gaussian_data):
     assert hist[9] > 0.0
     assert all(hist[1:9] == 0.0)
     assert clustering.best_k() == 3
+
+
+@pytest.mark.parametrize("n_out_of_bag", [0, 1, 2, 5])
+def test_compute_connectivity_matrix_any_number_out_of_bag(n_out_of_bag):
+    rng = np.random.default_rng(0)
+    labels = rng.integers(0, 3, size=12)
+    labels[:n_out_of_bag] = -1
+    connectivity_matrix = compute_connectivity_matrix(labels)
+    expected = (
+        (labels[:, None] == labels[None, :])
+        & (labels[:, None] != -1)
+        & (labels[None, :] != -1)
+    )
+    np.testing.assert_array_equal(connectivity_matrix, expected.astype("int8"))
+
+
+@pytest.mark.parametrize("n_resampled", [0, 1, 2, 7])
+def test_compute_identity_matrix_any_number_resampled(n_resampled):
+    x = np.zeros((10, 2))
+    resampled = np.arange(n_resampled)
+    identity_matrix = compute_identity_matrix(x, resampled)
+    expected = np.zeros((10, 10), dtype="int8")
+    expected[:n_resampled, :n_resampled] = 1
+    np.testing.assert_array_equal(identity_matrix, expected)

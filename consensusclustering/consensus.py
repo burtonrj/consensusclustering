@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from itertools import combinations
 from typing import Type, cast
 from warnings import warn
 
@@ -73,10 +72,8 @@ def compute_connectivity_matrix(labels: np.ndarray) -> np.ndarray:
     """
     out_of_bag_idx = np.where(labels == -1)[0]
     connectivity_matrix = np.equal.outer(labels, labels).astype("int8")
-    rows, cols = zip(*list(combinations(out_of_bag_idx, 2)))
-    connectivity_matrix[rows, cols] = 0
-    connectivity_matrix[cols, rows] = 0
-    connectivity_matrix[out_of_bag_idx, out_of_bag_idx] = 0
+    # out-of-bag items share the label -1, so their block is reset (works for any number of them, 0 and 1 included)
+    connectivity_matrix[np.ix_(out_of_bag_idx, out_of_bag_idx)] = 0
     return connectivity_matrix
 
 
@@ -100,10 +97,7 @@ def compute_identity_matrix(x: np.ndarray, resampled_indices: np.ndarray) -> np.
     """
     n = x.shape[0]
     identity_matrix = np.zeros((n, n), dtype="int8")
-    rows, cols = zip(*list(combinations(resampled_indices, 2)))
-    identity_matrix[rows, cols] = 1
-    identity_matrix[cols, rows] = 1
-    identity_matrix[resampled_indices, resampled_indices] = 1
+    identity_matrix[np.ix_(resampled_indices, resampled_indices)] = 1
     return identity_matrix
 
 

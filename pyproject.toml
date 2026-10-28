@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "consensusclustering"
-version = "0.2.4"
+version = "0.2.5"
 description = "Python implementation of Consensus Clustering by Monti et al. (2003)"
 authors = ["Ross Burton <burtonrossj@gmail.com>"]
 license = "MIT"
@@ -9,11 +9,11 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = ">=3.11"
 numpy = ">=2.0.0"
-pandas = ">=2.0.0"
 matplotlib = ">=3.8.0,<4"
 seaborn = ">=0.13.0"
 tqdm = ">=4.66.1"
 kneed = ">=0.8.5"
+joblib = ">=1.3.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "*"
